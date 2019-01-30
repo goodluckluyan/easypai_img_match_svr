@@ -17,9 +17,11 @@ class config:
         self.DstImage_W = 704
         self.DstImage_H = 576
         self.MatchImageSynProcess = 0
-        self.GET_IMAGE_FREQUECE_FROM_VIDEO = 1  # 从视频中提取图像的频率 n:表示每秒n帧图像
+        self.GET_IMAGE_FREQUECE_FROM_VIDEO = 1.0  # 从视频中提取图像的频率 n:表示每秒n帧图像
         self.ImageCompareCmd = './ImageCompare'
         self.FeatureExtractCmd = './extrace'
+        self.ffmpeg_Path = '/usr/bin/ffmpeg'
+        self.ffprob_Path = '/usr/bin/ffprobe'
         self.cf = configparser.ConfigParser()
 
     def readcfg(self, cfg_path):
@@ -41,7 +43,7 @@ class config:
         self.DstImage_W = self.cf.getint('process', 'dst_image_width')
         self.DstImage_H = self.cf.getint('process', 'dst_image_height')
         self.MatchImageSynProcess = self.cf.getint('process', 'synprocess_process')
-        self.GET_IMAGE_FREQUECE_FROM_VIDEO = self.cf.getint('process', 'get_image_frequece')
+        self.GET_IMAGE_FREQUECE_FROM_VIDEO = self.cf.get('process', 'get_image_frequece')
 
 
 cfg=config()

@@ -71,9 +71,10 @@ class Msg:
         self.load_uncomplate_template_create()
 
     def process_dl_msg(self):
-        try:
-            while True:
-                dl_rst = self.dl_msg_queue.get()  # [id,下载type,下载dl_ret 0成功 -1：失败]
+
+        while True:
+            dl_rst = self.dl_msg_queue.get()  # [id,下载type,下载dl_ret 0成功 -1：失败]
+            try:
                 id = dl_rst[0]
                 dl_type = dl_rst[1]
                 dl_rst_flag_ls = dl_rst[2]
@@ -82,8 +83,9 @@ class Msg:
                     resultaddr = self.request_head[id]['ResultURL']
                     save_full_path = self.request_head[id]['TemplatePath']
                     taskid = self.request_head[id]['TaskID']
+                    template_type = self.request_head[id]['TemplateType']
                     if  dl_rst_flag_ls[0] == 0:
-                        ret = self.generate_template_feature(save_full_path, taskid)
+                        ret = self.generate_template_feature(save_full_path, taskid, template_type)
                         result_json = self.gen_create_template_result_msg(id, ret)
                     else:
                         result_json = self.gen_create_template_result_msg(id, dl_rst_flag_ls[0])
@@ -101,7 +103,7 @@ class Msg:
                         DatabaseOpt.db.exesql(sql, row)
 
                         # 执行图像匹配
-                        if self.MatchImageSynProcess == 1:
+                        if cfg.MatchImageSynProcess == 1:
                             test_result_json = self.gen_match_image_result_msg(id)
                             ResultSend.send_th(resultaddr, test_result_json)
                         else:
@@ -144,11 +146,11 @@ class Msg:
                 del self.request_head[id]
                 self.loger.info("process dl msg complete ,dl msg queue size:%d"%self.dl_msg_queue.qsize())
 
-        except Exception as e:
-            fp = io.StringIO()
-            traceback.print_exc(file=fp)
-            message = fp.getvalue()
-            self.loger.info(message)
+            except Exception as e:
+                fp = io.StringIO()
+                traceback.print_exc(file=fp)
+                message = fp.getvalue()
+                self.loger.info(message)
 
     def add_task_queue(self, item):
         '''加入消息队列'''
@@ -157,11 +159,11 @@ class Msg:
     def add_dl_msg_queue(self, item):
         '''加入下载完成对列'''
         self.dl_msg_queue.put(item)
-        self.loger.info("cur dl msg queue size:%d"%self.dl_msg_queue.qsize())
+        self.loger.info("cur dl msg queue size:%d" % self.dl_msg_queue.qsize())
 
     def process(self):
-        try:
-            while True:
+        while True:
+            try:
                 encode = self.msg_queue.get()
                 cmdword = encode["MsgHead"]["Cmd"]
                 if cmdword == "CreateTemplate":
@@ -180,11 +182,11 @@ class Msg:
                 self.msg_queue.task_done()
                 self.loger.info("task process complete what befor download !")
                 self.loger.info("task:%s" % encode)
-        except Exception as e:
-            fp = io.StringIO()
-            traceback.print_exc(file=fp)
-            message = fp.getvalue()
-            self.loger.info(message)
+            except Exception as e:
+                fp = io.StringIO()
+                traceback.print_exc(file=fp)
+                message = fp.getvalue()
+                self.loger.info(message)
 
     def process_create_template_msg(self, encode):
         '''处理创建模板消息'''
@@ -198,9 +200,10 @@ class Msg:
         expand_name = dl_url.split('.')[-1]
         video_all_path = os.path.join(cfg.DownloadDir,
                                       task_id+os.path.sep+template_id+"."+expand_name)
-        sql = "insert into Template(TaskID,TemplateID,TemplateName,TemplateURL,DownLoadFilePath,CreateDataTime,ResultURL) " \
-              "values('{}','{}','{}','{}','{}','{}','{}')".format(encode['TaskID'], template_id, encode['TemplateName'],
-              dl_url, video_all_path, tm_str, encode['MsgHead']['ResultURL'])
+        sql = "insert into Template(TaskID,TemplateID,TemplateName,TemplateURL,DownLoadFilePath,CreateDataTime," \
+              "ResultURL,TemplateType) " \
+              "values('{}','{}','{}','{}','{}','{}','{}','{}')".format(encode['TaskID'], template_id, encode['TemplateName'],
+              dl_url, video_all_path, tm_str, encode['MsgHead']['ResultURL'], encode['TemplateType'])
         row = []
         DatabaseOpt.db.exesql(sql, row)
 
@@ -208,6 +211,10 @@ class Msg:
         self.request_head[task_id] = encode['MsgHead']
         self.request_head[task_id]['TaskID'] = task_id
         self.request_head[task_id]['TemplatePath'] = video_all_path
+        if 'TemplateType' in encode.keys():
+            self.request_head[task_id]['TemplateType'] = encode['TemplateType']
+        else:
+            self.request_head[task_id]['TemplateType'] = 'Video'
 
         self.dl_thread[self.dl_thread_index].add_download_task([dl_url], [video_all_path],
                                                                task_id, "CreateTemplate")
@@ -237,21 +244,20 @@ class Msg:
                 return -1
             id = encode["MatchSessionID"]
             taskid = encode["TaskID"]
+            phone = ''
+            if 'Phone' in encode.keys():
+                phone = encode['Phone']
             image_url = encode["Image"]
             image_num = encode["ImageNum"]
             result_url = encode['MsgHead']['ResultURL']
             match_rec_image_path = os.path.join(cfg.DownloadMatchSessionDir, id)
             if len(image_url) != image_num:
                 pass
-            sql = "insert into MatchSession(MatchSessionID,TaskID,Type,ObjPath,ResultURL,CreateTime) " \
-                  "values('{}','{}','{}','{}','{}','{}')".format(id, taskid,  1, match_rec_image_path,
-                                                                      result_url,self.get_time_str())
 
             id = encode['MatchSessionID']
             self.request_head[id] = encode['MsgHead']
             self.request_head[id]['TaskID'] = encode['TaskID']
             self.request_head[id]['MatchSessionID'] = encode['MatchSessionID']
-            self.request_head[id]['Sql'] = sql
             self.request_head[id]['SavePath'] = match_rec_image_path
             img_ls = encode["Image"]
             url_ls = []
@@ -267,6 +273,12 @@ class Msg:
                 img_filename_ls.append(filename)
                 url_ls.append(url)
                 save_all_path_ls.append(os.path.join(match_rec_image_path, filename))
+
+            sql = "insert into MatchSession(MatchSessionID,TaskID,Type,ObjNum,ObjPath,ResultURL,CreateTime,UserPhone) "\
+                  "values('{}','{}','{}','{}','{}','{}','{}','{}')".format(id, taskid,  1, len(img_ls), match_rec_image_path,
+                                                                      result_url, self.get_time_str(), phone)
+            self.request_head[id]['Sql'] = sql
+
             self.request_head[id]['image_filename_ls'] = img_filename_ls
             self.loger.info("download image:%s save path %s"%(url_ls, save_all_path_ls))
 
@@ -301,7 +313,7 @@ class Msg:
                                                                id, "MatchVideo")
         self.dl_thread_index = (self.dl_thread_index+1)%len(self.dl_thread)
 
-    def generate_template_feature(self, template_full_path, taskid):
+    def generate_template_feature(self, template_full_path, taskid, template_type):
         try:
             # 更新下载完成时间
             str_tm = self.get_time_str()
@@ -310,20 +322,39 @@ class Msg:
             row = []
             DatabaseOpt.db.exesql(sql, row)
 
-            # 获取视频流信息
-            stream_info = {}
-            FetchImage.get_vf_info(template_full_path, stream_info)
-            self.loger.info("%s format info :%s" % (template_full_path,stream_info))
-            frequency = cfg.GET_IMAGE_FREQUECE_FROM_VIDEO
+            if template_type == 'Video':
+                # 获取视频流信息
+                stream_info = {}
 
-            FetchImage.fetch_image(template_full_path, frequency, cfg.DstImage_W ,cfg.DstImage_H)
-            sql = 'insert into TemplateDetail(TemplateID,CreateDataTime,FeaturePath,Duration,' \
-                  'FrameRate,Frequency,FeatureType,VideoWidth,VideoHeight,DstImageWidth,DstImageHeight)' \
-                   ' values(\"%s\",\"%s\",\"%s\",%d,\"%s\",%d,\"%s\",%d,%d,%d,%d)'%(taskid, str_tm,
-                   template_full_path,stream_info['duration'],stream_info['frame_rate'], frequency, cfg.Feature_type,
-                   stream_info['width'], stream_info['height'], cfg.DstImage_W, cfg.DstImage_H)
-            row = []
-            DatabaseOpt.db.exesql(sql, row)
+                frequency = cfg.GET_IMAGE_FREQUECE_FROM_VIDEO
+                #FetchImage.get_vf_info(template_full_path, stream_info)
+                FetchImage.fetch_image(template_full_path, frequency, cfg.DstImage_W ,cfg.DstImage_H)
+                sql=''
+                if len(stream_info) > 0:
+                    self.loger.info("%s format info :%s" % (template_full_path,stream_info))
+                    sql = 'insert into TemplateDetail(TemplateID,CreateDataTime,FeaturePath,Duration,' \
+                          'FrameRate,Frequency,FeatureType,VideoWidth,VideoHeight,DstImageWidth,DstImageHeight)' \
+                           ' values(\"%s\",\"%s\",\"%s\",%d,\"%s\",%.2f,\"%s\",%d,%d,%d,%d)'%(taskid, str_tm,
+                           template_full_path,stream_info['duration'],stream_info['frame_rate'], float(frequency), cfg.Feature_type,
+                           stream_info['width'], stream_info['height'], cfg.DstImage_W, cfg.DstImage_H)
+
+                else:
+                    self.loger.info("%s format info :%s" % (template_full_path,stream_info))
+                    sql = 'insert into TemplateDetail(TemplateID,CreateDataTime,FeaturePath,Duration,' \
+                          'FrameRate,Frequency,FeatureType,VideoWidth,VideoHeight,DstImageWidth,DstImageHeight)' \
+                           ' values(\"%s\",\"%s\",\"%s\",%d,\"%s\",%.2f,\"%s\",%d,%d,%d,%d)'%(taskid, str_tm,
+                           template_full_path,0,'0', float(frequency), cfg.Feature_type,
+                           0, 0, cfg.DstImage_W, cfg.DstImage_H)
+                row = []
+                DatabaseOpt.db.exesql(sql, row)
+            elif template_type == 'Image':
+                new_img_name, img_ext_name = os.path.splitext(template_full_path)
+                if 'bmp' not in img_ext_name:
+                    img = Image.open(template_full_path)
+                    new_img_name = new_img_name + '.bmp'
+                    img.save(new_img_name)
+                    self.loger.info('tranform image to bmp (%s->%s)' % (template_full_path, new_img_name))
+
 
             # 提取每个图片的特征，并保存成文件
 
@@ -352,14 +383,22 @@ class Msg:
                     feature_full_path = "%s_%s.%s"%(full_name, featurenum, cfg.Feature_type)
                     self.loger.info("%s(%s)" % (feature_full_path,featurenum))
                     if int(featurenum) > 0 and os.path.isfile(feature_full_path):
-                        filename = os.path.basename(bmp_file)
-                        ordinal = filename.split('.')[0]
-                        sql = 'insert into Features(uuid,ad_filename,bmp_fullFilePath,' \
-                              'fullFilePath,picture_order,quantity,bmp_quantity) values(\"%s\",\"%s\",' \
-                              '\"%s\",\"%s\",%s,%s,%d)' % (taskid, template_full_path, bmp_file, feature_full_path,
-                                                            ordinal, featurenum, bmp_num)
-                        row = []
-                        DatabaseOpt.db.exesql(sql, row)
+                        if template_type == 'Video':
+                            filename = os.path.basename(bmp_file)
+                            ordinal = filename.split('.')[0]
+                            sql = 'insert into Features(uuid,ad_filename,bmp_fullFilePath,' \
+                                  'fullFilePath,picture_order,quantity,bmp_quantity) values(\"%s\",\"%s\",' \
+                                  '\"%s\",\"%s\",%s,%s,%d)' % (taskid, template_full_path, bmp_file, feature_full_path,
+                                                                ordinal, featurenum, bmp_num)
+                            row = []
+                            DatabaseOpt.db.exesql(sql, row)
+                        else:
+                            sql = 'insert into Features(uuid,ad_filename,bmp_fullFilePath,' \
+                                  'fullFilePath,picture_order,quantity,bmp_quantity) values(\"%s\",\"%s\",' \
+                                  '\"%s\",\"%s\",%d,%s,%d)' % (taskid, template_full_path, bmp_file, feature_full_path,
+                                                                0, featurenum, bmp_num)
+                            row = []
+                            DatabaseOpt.db.exesql(sql, row)
 
             if bmp_num > 0 and bmp_process_num > 0:
                 sql = 'update Template set IsGenFeature=1 where TaskID=\"%s\"' %(taskid)
@@ -368,10 +407,12 @@ class Msg:
 
             return 0
         except Exception as e:
-            self.loger.info(e)
+            fp = io.StringIO()
+            traceback.print_exc(file=fp)
+            message = fp.getvalue()
+            self.loger.info(message)
+
             return -1
-
-
 
     def verify_msg(self, msg_json):
         msg_head = msg_json["MsgHead"]
@@ -695,7 +736,7 @@ class Msg:
     def load_uncomplate_template_create(self):
         '''检测未完成模板创建任务'''
         rows =[]
-        sql = 'select TaskID,TemplateID,TemplateURL,DownLoadFilePath,ResultURL from ' \
+        sql = 'select TaskID,TemplateID,TemplateURL,DownLoadFilePath,ResultURL,TemplateType from ' \
               'Template where DownloadDone is null or DownloadDone=0;'
 
         DatabaseOpt.db.exesql(sql, rows)
@@ -708,12 +749,14 @@ class Msg:
             dl_url = row[2]
             video_all_path = row[3]
             result_url = row[4]
+            template_type = row[5]
 
             # 添加下载任务
             self.request_head[task_id] = {}
             self.request_head[task_id]['TaskID'] = task_id
             self.request_head[task_id]['TemplatePath'] = video_all_path
             self.request_head[task_id]['ResultURL'] = result_url
+            self.request_head[task_id]['TemplateType'] = template_type
             self.dl_thread[self.dl_thread_index].add_download_task([dl_url], [video_all_path],
                                                                    task_id, "CreateTemplate")
             self.dl_thread_index = (self.dl_thread_index+1) % len(self.dl_thread)

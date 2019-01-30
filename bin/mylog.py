@@ -3,10 +3,15 @@
 
 # 日志
 import logging
-logfile = "log.log"
+import re
+from logging.handlers import TimedRotatingFileHandler
+
+logfile = "log"
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
-fh = logging.FileHandler(logfile,mode='a')
+fh = TimedRotatingFileHandler( logfile, when='D', interval=1, backupCount=30)
+fh.suffix = '%y-%m-%d.log'
+fh.extMatch = re.compile("~\d{4}-\d{2}-\d{2}.log$")
 fh.setLevel(logging.INFO)
 ch = logging.StreamHandler()
 ch.setLevel(logging.INFO)

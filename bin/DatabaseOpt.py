@@ -50,13 +50,11 @@ class DatabaseOpt:
 
         return ret
 
-#db = DatabaseOpt("211.159.160.241", "root", "123456", "easypai")
-db = DatabaseOpt(cfg.DB_Host, cfg.DB_User, cfg.DB_Password, cfg.DB_Name)
+db = DatabaseOpt("211.159.160.241", "root", "123456", "easypai")
+#db = DatabaseOpt(cfg.DB_Host, cfg.DB_User, cfg.DB_Password, cfg.DB_Name)
 
 if __name__ == '__main__':
     db.cnn_db()
     row = []
-    sql = 'select * from MatchSession ;'
+    sql = 'delete from  Template where TaskID=\'DA19010001\''
     db.exesql(sql, row)
-    for i in row[0]:
-        print(i)

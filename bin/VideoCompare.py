@@ -14,6 +14,7 @@ import numpy as np
 from PIL import Image
 import io
 import traceback
+import Config
 
 class VideoCompare:
     def __init__(self, ImageSrvHomeDir, ImageSrvBaseUrl, name='matchvideo'):
@@ -48,10 +49,12 @@ class VideoCompare:
             Match_Image_Base_URL = node['ResultImageUrl']
             resultaddr = node['ResultCommitURL']
             match_image_dir = Image_Srv_Dir + "/" + match_id
+            rst_map = {6: "DownLoadImageFailed", 7: "MatchComplete", 8: "MatchFailed"}
 
             #  截取视频中的图片
             if os.path.exists(match_video_path):
-                FetchImage.fetch_image(match_video_path, 1, template_w, template_h)
+                FetchImage.fetch_image(match_video_path, Config.cfg.GET_IMAGE_FREQUECE_FROM_VIDEO,
+                                       template_w, template_h)
             else:
                 self.logger.info("error:%s not exist!")
                 continue
@@ -63,6 +66,9 @@ class VideoCompare:
             #  通过特征文件文件名字的特征数量信息，找到特征点最多的那种图
             f_num_ls = []
             all_sift_file = self.walk_dir(template_img_path, ['.sift'])
+            if len(lubo_img_ls) == 0 or len(all_sift_file) == 0:
+                self.return_failed_msg(resultaddr, taskid,match_id)
+
             for sift_file in all_sift_file:
                 filename = sift_file.split('/')[-1]
                 start = filename.find('_')+1
@@ -93,15 +99,14 @@ class VideoCompare:
             m_f_num = result[maxmatch_cnt_index][3]
             detail = []
             weight = (2*m_f_num)/(l_f_num+t_f_num)
+            video_file = os.path.basename(video_dir_name)
             if weight > 0.01:
-                video_file = os.path.basename(video_dir_name)
-
                 # 转换图片格式并复制到图片服务器路径下
                 # 复制模板图
                 row_t_img = Image.open(template_file)
                 t_filename = os.path.basename(template_file)
                 basename = os.path.splitext(t_filename)[0]
-                jpg_name = basename + ".jpg"
+                jpg_name = basename + "_t.jpg"
                 is_exist = os.path.exists(match_image_dir)
                 if not is_exist:
                     os.makedirs(match_image_dir)
@@ -117,7 +122,7 @@ class VideoCompare:
                 row_t_img = Image.open(match_lubo_image)
                 l_filename = os.path.basename(match_lubo_image)
                 basename = os.path.splitext(l_filename)[0]
-                jpg_name = basename + ".jpg"
+                jpg_name = basename + "_l.jpg"
                 dst_path = os.path.join(match_image_dir, jpg_name)
                 self.logger.info("%s:%s -> %s" % (self.myname, match_lubo_image, dst_path))
                 row_t_img.save(dst_path)
@@ -131,7 +136,6 @@ class VideoCompare:
                 detail.append(item)
 
             # 发送结果消息
-            rst_map = {6: "DownLoadImageFailed", 7: "MatchComplete", 8: "MatchFailed"}
             err_desc = rst_map[7]
             tm_str = self.get_time_str()
             MsgID = "RMI%d" % (int(time.time()))
@@ -162,6 +166,18 @@ class VideoCompare:
             DatabaseOpt.db.exesql(sql, row)
             self.mt_queue.task_done()
 
+    def return_failed_msg(self, resultaddr, taskid, match_id):
+        rst_map = {6: "DownLoadImageFailed", 7: "MatchComplete", 8: "MatchFailed"}
+        tm_str = self.get_time_str()
+        err_desc = rst_map[8]
+        MsgID = "RMI%d" % (int(time.time()))
+        result_json = {"Version": 1, "MsgID": MsgID, "MsgType": "result",
+                   "DateTime": tm_str,    "TaskID": taskid, "MatchSessionID" : match_id,
+                   'ResultName': 'MatchVideo', "Result": {'Status': 8, 'Desc': err_desc }}
+        ResultSend.send_th(resultaddr, result_json)
+        scheduler.timer_task.AddTimerTask(300, [resultaddr, result_json])
+        scheduler.timer_task.AddTimerTask(1800, [resultaddr, result_json])
+
     def add_video_compare_task(self, taskid, msi, match_video_path, template_path, t_width, t_height, result_commit_url):
         node = {}
         node["MatchSessionID"] = msi
@@ -188,6 +204,8 @@ class VideoCompare:
         return tm_str
 
     def walk_dir(self, train_path, filter):
+        if not os.path.isdir(train_path):
+            return []
         training_names = os.listdir(train_path)
         # Get all the path to the images and save them in a list
         # image_paths and the corresponding label in image_paths
